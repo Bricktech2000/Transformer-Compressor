@@ -106,7 +106,7 @@ def bytes_to_bits(bytes):
 # taken partly from `lit-llama/generate.py`
 def main():
   if len(sys.argv) != 4:
-    print("Usage: python3 generate.py (compress|decompress) <input_path> <output_path>")
+    print("Usage: python3 trc.py (compress|decompress) <input_path> <output_path>")
     sys.exit(1)
 
   checkpoint_path = Path("lit-llama/checkpoints/lit-llama/7B/lit-llama.pth")
