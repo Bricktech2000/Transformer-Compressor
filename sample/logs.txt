@@ -1,4 +1,4 @@
-python3 trc.py compress sample/regex\ original.txt sample/regex\ compressed.trc && python3 trc.py decompress sample/regex\ compressed.trc sample/regex\ decompressed.txt
+python3 trc.py compress sample/sample.txt sample/compressed.trc && python3 trc.py decompress sample/compressed.trc sample/decompressed.txt
 execution time: 17.87 hours
 
 Loading model...
