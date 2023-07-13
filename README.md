@@ -37,7 +37,7 @@ cd Transformer-Compressor
 git submodule update --init --recursive
 pip3 install -r lit-llama/requirements.txt
 python3 lit-llama/scripts/download.py --repo_id openlm-research/open_llama_7b --local_dir lit-llama/checkpoints/open-llama/7B
-python3 lit-llama/scripts/convert_hf_checkpoint.py --checkpoint_dir lit-llama/checkpoints/open-llama/7B --model_size 7B
+python3 lit-llama/scripts/convert_hf_checkpoint.py --checkpoint_dir lit-llama/checkpoints/open-llama/7B --output_dir lit-llama/checkpoints/lit-llama/7B --model_size 7B
 rm -r lit-llama/checkpoints/open-llama/
 ```
 
