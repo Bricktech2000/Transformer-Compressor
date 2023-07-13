@@ -10,7 +10,7 @@ import lightning as L
 import torch
 
 # load `lit_llama` from `lit-llama` submodule
-wd = os.path.join(Path(__file__).parent.resolve(), "lit-llama")  # noqa
+wd = os.path.join(Path(__file__).parent.resolve(), 'lit-llama')  # noqa
 sys.path.append(str(wd))  # noqa
 
 from lit_llama.utils import lazy_load, llama_model_lookup, quantization
@@ -29,7 +29,7 @@ def generate(
     top_k: Optional[int] = None,
     eos_id: Optional[int] = None,
 ) -> torch.Tensor:
-  """Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
+  '''Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
 
   The implementation of this function is modified from A. Karpathy's nanoGPT.
 
@@ -41,7 +41,7 @@ def generate(
       temperature: Scales the predicted logits by 1 / temperature
       top_k: If specified, only sample among the tokens with the k highest probabilities
       eos_id: If specified, stop generating any more token once the <eos> token is triggered
-  """
+  '''
   # create an empty tensor of the expected final shape and fill in the current tokens
   T = idx.size(0)
   T_new = T + max_new_tokens
@@ -55,7 +55,7 @@ def generate(
   idx = empty
   input_pos = torch.arange(0, T, device=device)
 
-  if idx.device.type == "xla":
+  if idx.device.type == 'xla':
     import torch_xla.core.xla_model as xm
 
     xm.mark_step()
@@ -71,7 +71,7 @@ def generate(
     # optionally crop the logits to only the top k options
     if top_k is not None:
       v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-      logits = torch.where(logits < v[[-1]], -float("Inf"), logits)
+      logits = torch.where(logits < v[[-1]], -float('Inf'), logits)
 
     probs = torch.nn.functional.softmax(logits, dim=-1)
     idx_next = torch.multinomial(probs, num_samples=1).to(dtype=dtype)
@@ -81,7 +81,7 @@ def generate(
     # advance
     input_pos = input_pos[-1:] + 1
 
-    if idx.device.type == "xla":
+    if idx.device.type == 'xla':
       xm.mark_step()
 
     # concatenate the new generation
@@ -106,21 +106,21 @@ def bytes_to_bits(bytes):
 # taken partly from `lit-llama/generate.py`
 def main():
   if len(sys.argv) != 4:
-    print("Usage: python3 trc.py (compress|decompress) <input_path> <output_path>")
+    print('Usage: python3 trc.py (compress|decompress) <input_path> <output_path>')
     sys.exit(1)
 
-  checkpoint_path = Path("lit-llama/checkpoints/lit-llama/7B/lit-llama.pth")
-  tokenizer_path = Path("lit-llama/checkpoints/lit-llama/tokenizer.model")
+  checkpoint_path = Path('lit-llama/checkpoints/lit-llama/7B/lit-llama.pth')
+  tokenizer_path = Path('lit-llama/checkpoints/lit-llama/tokenizer.model')
   assert checkpoint_path.is_file(), checkpoint_path
   assert tokenizer_path.is_file(), tokenizer_path
   operation = sys.argv[1]
   input_path = Path(sys.argv[2])
   output_path = Path(sys.argv[3])
 
-  precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
+  precision = 'bf16-true' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else '32-true'
   fabric = L.Fabric(devices=1, precision=precision)
 
-  print("Loading model...")
+  print('Loading model...')
   t0 = time.time()
   with lazy_load(checkpoint_path) as checkpoint:
     name = llama_model_lookup(checkpoint)
@@ -129,7 +129,7 @@ def main():
       model = LLaMA.from_name(name)
 
     model.load_state_dict(checkpoint)
-  print(f"Load time: {time.time() - t0:.02f} seconds")
+  print(f'Load time: {time.time() - t0:.02f} seconds')
 
   model.eval()
   model = fabric.setup(model)
@@ -138,15 +138,15 @@ def main():
 
   L.seed_everything(0)
 
-  with open(input_path, "rb") as f:
+  with open(input_path, 'rb') as f:
     input = f.read()
-  print(f"Input bytes: {input}")
+  print(f'Input bytes: {input}')
 
   output = None
   t0 = time.perf_counter()
-  if operation == "compress":
+  if operation == 'compress':
     input_tokens = tokenizer.encode(input, bos=True, eos=False, device=fabric.device)
-    print(f"Input tokens: {[tokenizer.decode(t).encode() for t in input_tokens]}")
+    print(f'Input tokens: {[tokenizer.decode(t).encode() for t in input_tokens]}')
     output_bits = []
     # start at 1 to ignore <bos>
     for x in range(1, input_tokens.size(0)):
@@ -166,18 +166,18 @@ def main():
         probabilities.append((p1[0] if p1[0] == input_tokens[x].item() else p2[0], p1[1] + p2[1]))
       output_bits.extend(reversed(path))
 
-      print(f"Output bits: {output_bits}...")
+      print(f'Output bits: {output_bits}...')
       model.reset_cache()
 
     output_bits.append(1)  # mark end of file
     output = bits_to_bytes(output_bits)
 
-  elif operation == "decompress":
+  elif operation == 'decompress':
     input_bits = bytes_to_bits(input)
     while input_bits[-1] == 0:
       input_bits.pop()
     input_bits.pop()  # remove end of file marker
-    print(f"Input bits: {input_bits}")
+    print(f'Input bits: {input_bits}')
     output_tokens = torch.tensor([tokenizer.bos_id], device=fabric.device)
     while len(input_bits) > 0:
       probabilities = generate(model, output_tokens, max_new_tokens=1, temperature=1)
@@ -198,43 +198,43 @@ def main():
           node = node[1]
       output_tokens = torch.cat((output_tokens, torch.tensor([node], device=fabric.device)))
 
-      print(f"Output tokens: {[tokenizer.decode(t).encode() for t in output_tokens]}...")
+      print(f'Output tokens: {[tokenizer.decode(t).encode() for t in output_tokens]}...')
       model.reset_cache()
 
     output = tokenizer.decode(output_tokens).encode()
 
   else:
-    print("Invalid operation")
+    print('Invalid operation')
     sys.exit(1)
 
-  print(f"Output bytes: {output}")
-  with open(output_path, "wb+") as f:
+  print(f'Output bytes: {output}')
+  with open(output_path, 'wb+') as f:
     f.write(output)
 
-  if fabric.device.type == "cuda":
-    print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
+  if fabric.device.type == 'cuda':
+    print(f'Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB', file=sys.stderr)
 
-  print(f"Done.")
-  print(f"")
-  print(f"Input size: {len(input) * 8} bits")
-  print(f"Output size: {len(output) * 8} bits")
-  print(f"Ratio: {max(len(input), len(output)) / min(len(input), len(output)):.02f}x")
-  print(f"Input throughput: {len(input) * 8 / (time.perf_counter() - t0)} bits/second")
-  print(f"Output throughput: {len(output) * 8 / (time.perf_counter() - t0)} bits/second")
-  print(f"Total time: {time.perf_counter() - t0:.02f} seconds")
+  print(f'Done.')
+  print(f'')
+  print(f'Input size: {len(input) * 8} bits')
+  print(f'Output size: {len(output) * 8} bits')
+  print(f'Ratio: {max(len(input), len(output)) / min(len(input), len(output)):.02f}x')
+  print(f'Input throughput: {len(input) * 8 / (time.perf_counter() - t0)} bits/second')
+  print(f'Output throughput: {len(output) * 8 / (time.perf_counter() - t0)} bits/second')
+  print(f'Total time: {time.perf_counter() - t0:.02f} seconds')
 
 
 # taken mostly from `lit-llama/generate.py`
-if __name__ == "__main__":
-  torch.set_float32_matmul_precision("high")
+if __name__ == '__main__':
+  torch.set_float32_matmul_precision('high')
   warnings.filterwarnings(
       # Triggered internally at ../aten/src/ATen/EmptyTensor.cpp:31
-      "ignore",
-      message="ComplexHalf support is experimental and many operators don't support it yet"
+      'ignore',
+      message='ComplexHalf support is experimental and many operators don\'t support it yet'
   )
   warnings.filterwarnings(
       # Triggered in bitsandbytes/autograd/_functions.py:298
-      "ignore",
-      message="MatMul8bitLt: inputs will be cast from torch.bfloat16 to float16 during quantization",
+      'ignore',
+      message='MatMul8bitLt: inputs will be cast from torch.bfloat16 to float16 during quantization',
   )
   main()
