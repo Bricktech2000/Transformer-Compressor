@@ -142,10 +142,11 @@ def main():
     input = f.read()
   print(f'Input bytes: {input}')
 
-  output = None
+  output = b''
+  tokens = []
   t0 = time.perf_counter()
   if operation == 'compress':
-    input_tokens = tokenizer.encode(input, bos=True, eos=False, device=fabric.device)
+    input_tokens = tokens = tokenizer.encode(input, bos=True, eos=False, device=fabric.device)
     print(f'Input tokens: {[tokenizer.decode(t).encode() for t in input_tokens]}')
     output_bits = []
     # start at 1 to ignore <bos>
@@ -202,7 +203,7 @@ def main():
           node = node[0]
         if current_bit == 1:
           node = node[1]
-      output_tokens = torch.cat((output_tokens, torch.tensor([node], device=fabric.device)))
+      output_tokens = tokens = torch.cat((output_tokens, torch.tensor([node], device=fabric.device)))
 
       print(f'Output tokens: {[tokenizer.decode(t).encode() for t in output_tokens]}...')
       model.reset_cache()
@@ -224,9 +225,11 @@ def main():
   print(f'')
   print(f'Input size: {len(input) * 8} bits')
   print(f'Output size: {len(output) * 8} bits')
+  print(f'Token count: {len(tokens)} tokens')
   print(f'Ratio: {max(len(input), len(output)) / min(len(input), len(output)):.02f}x')
   print(f'Input throughput: {len(input) * 8 / (time.perf_counter() - t0)} bits/second')
   print(f'Output throughput: {len(output) * 8 / (time.perf_counter() - t0)} bits/second')
+  print(f'Token throughput: {len(tokens) / (time.perf_counter() - t0)} tokens/second')
   print(f'Total time: {time.perf_counter() - t0:.02f} seconds')
 
 
