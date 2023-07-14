@@ -1,8 +1,8 @@
 from typing import Optional
 from pathlib import Path
 import warnings
+import heapq
 import time
-import math
 import sys
 import os
 
@@ -151,19 +151,19 @@ def main():
     # start at 1 to ignore <bos>
     for x in range(1, input_tokens.size(0)):
       probabilities = generate(model, input_tokens[:x], max_new_tokens=1, temperature=1)
-      probabilities = list(map(lambda e: (e[0], e[1].item()), enumerate(probabilities)))
+      probabilities = [(prob.item(), id, id) for id, prob in enumerate(probabilities)]
+      # will sort by probability then by token id
+      heapq.heapify(probabilities)
 
       path = []
       while len(probabilities) > 1:
-        # O(n log n) priority queue but negligible compared to generation time
-        probabilities = sorted(probabilities, key=lambda e: e[1])
-        p1 = probabilities.pop(0)
-        p2 = probabilities.pop(0)
-        if p1[0] == input_tokens[x].item():
+        p1 = heapq.heappop(probabilities)
+        p2 = heapq.heappop(probabilities)
+        if p1[2] == input_tokens[x].item():
           path.append(0)
-        if p2[0] == input_tokens[x].item():
+        if p2[2] == input_tokens[x].item():
           path.append(1)
-        probabilities.append((p1[0] if p1[0] == input_tokens[x].item() else p2[0], p1[1] + p2[1]))
+        heapq.heappush(probabilities, (p1[0] + p2[0], p1[1], p1[2] if p1[2] == input_tokens[x].item() else p2[2]))
       output_bits.extend(reversed(path))
 
       print(f'Output bits: {output_bits}...')
@@ -181,15 +181,21 @@ def main():
     output_tokens = torch.tensor([tokenizer.bos_id], device=fabric.device)
     while len(input_bits) > 0:
       probabilities = generate(model, output_tokens, max_new_tokens=1, temperature=1)
-      probabilities = list(map(lambda e: (e[0], e[1].item()), enumerate(probabilities)))
+      probabilities = [(prob.item(), id, id) for id, prob in enumerate(probabilities)]
+      # will sort by probability then by token id
+      heapq.heapify(probabilities)
 
       while len(probabilities) > 1:
-        # O(n log n) priority queue but negligible compared to generation time
-        probabilities = sorted(probabilities, key=lambda e: e[1])
-        p1 = probabilities.pop(0)
-        p2 = probabilities.pop(0)
-        probabilities.append(((p1[0], p2[0]), p1[1] + p2[1]))
-      node = probabilities[0][0]
+        print(probabilities[:20])
+        p1 = heapq.heappop(probabilities)
+        print(p1)
+        p2 = heapq.heappop(probabilities)
+        print(p2)
+        # if two sums of probabilities collide, things will likely break
+        # because the heap will attempt to sort by the pair (p1[2], p2[2]),
+        # which differs from `compress`
+        heapq.heappush(probabilities, (p1[0] + p2[0], p1[1], (p1[2], p2[2])))
+      node = heapq.heappop(probabilities)[2]
       while isinstance(node, tuple):
         current_bit = input_bits.pop(0)
         if current_bit == 0:
