@@ -121,7 +121,8 @@ def main():
   fabric = L.Fabric(devices=1, precision=precision)
 
   print('Loading model...')
-  t0 = time.time()
+  total_t0 = time.perf_counter()
+  model_load_t0 = time.perf_counter()
   with lazy_load(checkpoint_path) as checkpoint:
     name = llama_model_lookup(checkpoint)
 
@@ -129,7 +130,7 @@ def main():
       model = LLaMA.from_name(name)
 
     model.load_state_dict(checkpoint)
-  print(f'Load time: {time.time() - t0:.02f} seconds')
+  model_load_time = time.perf_counter() - model_load_t0
 
   model.eval()
   model = fabric.setup(model)
@@ -144,18 +145,25 @@ def main():
 
   output = b''
   tokens = []
-  t0 = time.perf_counter()
+  tokenization_time = 0
+  probability_inference_time = 0
+  huffman_coding_time = 0
   if operation == 'compress':
+    tokenization_t0 = time.perf_counter()
     input_tokens = tokens = tokenizer.encode(input, bos=True, eos=False, device=fabric.device)
+    tokenization_time = time.perf_counter() - tokenization_t0
     print(f'Input tokens: {[tokenizer.decode(t).encode() for t in input_tokens]}')
     output_bits = []
     # start at 1 to ignore <bos>
     for x in range(1, input_tokens.size(0)):
+      prob_mass_gen_t0 = time.perf_counter()
       probabilities = generate(model, input_tokens[:x], max_new_tokens=1, temperature=1)
       probabilities = [(prob.item(), id, id) for id, prob in enumerate(probabilities)]
+      probability_inference_time += time.perf_counter() - prob_mass_gen_t0
+
+      huffman_coding_t0 = time.perf_counter()
       # will sort by probability then by token id
       heapq.heapify(probabilities)
-
       path = []
       while len(probabilities) > 1:
         p1 = heapq.heappop(probabilities)
@@ -166,6 +174,7 @@ def main():
           path.append(1)
         heapq.heappush(probabilities, (p1[0] + p2[0], p1[1], p1[2] if p1[2] == input_tokens[x].item() else p2[2]))
       output_bits.extend(reversed(path))
+      huffman_coding_time += time.perf_counter() - huffman_coding_t0
 
       print(f'Output bits: {output_bits}...')
       model.reset_cache()
@@ -181,20 +190,17 @@ def main():
     print(f'Input bits: {input_bits}')
     output_tokens = torch.tensor([tokenizer.bos_id], device=fabric.device)
     while len(input_bits) > 0:
+      prob_mass_gen_t0 = time.perf_counter()
       probabilities = generate(model, output_tokens, max_new_tokens=1, temperature=1)
       probabilities = [(prob.item(), id, id) for id, prob in enumerate(probabilities)]
+      probability_inference_time += time.perf_counter() - prob_mass_gen_t0
+
+      hugman_coding_t0 = time.perf_counter()
       # will sort by probability then by token id
       heapq.heapify(probabilities)
-
       while len(probabilities) > 1:
-        print(probabilities[:20])
         p1 = heapq.heappop(probabilities)
-        print(p1)
         p2 = heapq.heappop(probabilities)
-        print(p2)
-        # if two sums of probabilities collide, things will likely break
-        # because the heap will attempt to sort by the pair (p1[2], p2[2]),
-        # which differs from `compress`
         heapq.heappush(probabilities, (p1[0] + p2[0], p1[1], (p1[2], p2[2])))
       node = heapq.heappop(probabilities)[2]
       while isinstance(node, tuple):
@@ -204,11 +210,14 @@ def main():
         if current_bit == 1:
           node = node[1]
       output_tokens = tokens = torch.cat((output_tokens, torch.tensor([node], device=fabric.device)))
+      huffman_coding_time += time.perf_counter() - hugman_coding_t0
 
       print(f'Output tokens: {[tokenizer.decode(t).encode() for t in output_tokens]}...')
       model.reset_cache()
 
+    tokenization_t0 = time.perf_counter()
     output = tokenizer.decode(output_tokens).encode()
+    tokenization_time = time.perf_counter() - tokenization_t0
 
   else:
     print('Invalid operation')
@@ -218,6 +227,8 @@ def main():
   with open(output_path, 'wb+') as f:
     f.write(output)
 
+  total_time = time.perf_counter() - total_t0
+
   if fabric.device.type == 'cuda':
     print(f'Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB', file=sys.stderr)
 
@@ -226,11 +237,15 @@ def main():
   print(f'Input size: {len(input) * 8} bits')
   print(f'Output size: {len(output) * 8} bits')
   print(f'Token count: {len(tokens)} tokens')
-  print(f'Ratio: {max(len(input), len(output)) / min(len(input), len(output)):.02f}x')
-  print(f'Input throughput: {len(input) * 8 / (time.perf_counter() - t0)} bits/second')
-  print(f'Output throughput: {len(output) * 8 / (time.perf_counter() - t0)} bits/second')
-  print(f'Token throughput: {len(tokens) / (time.perf_counter() - t0)} tokens/second')
-  print(f'Total time: {time.perf_counter() - t0:.02f} seconds')
+  print(f'Compression ratio: {max(len(input), len(output)) / min(len(input), len(output)):.02f}x')
+  print(f'Input throughput: {len(input) * 8 / (total_time - model_load_time):.02f} bits/second')
+  print(f'Output throughput: {len(output) * 8 / (total_time - model_load_time):.02f} bits/second')
+  print(f'Token throughput: {len(tokens) / (total_time - model_load_time):.02f} tokens/second')
+  print(f'Model load time: {model_load_time:.02f} seconds')
+  print(f'Tokenization time: {tokenization_time:.02f} seconds')
+  print(f'Probability inference time: {probability_inference_time:.02f} seconds')
+  print(f'Huffman coding time: {huffman_coding_time:.02f} seconds')
+  print(f'Total time: {total_time:.02f} seconds')
 
 
 # taken mostly from `lit-llama/generate.py`
